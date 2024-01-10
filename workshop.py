@@ -49,16 +49,7 @@ shape = CircleShape(
 
 edge_sample, domain_sample = shape.get()
 
-pde = ReverseChauchyPDE(
-    f_function=F_EXPR,
-    g_function=G_EXPR,
-    h_function=H_EXPR,
-    x_symbols=Xs_symbol,
-    domain_sample=domain_sample,
-    edge_sample=edge_sample,
-    time_sample=time_sample,
-    time_symbol=t_symbol
-)
+
 
 # ----------- 
 
@@ -87,6 +78,27 @@ class CustomLSTM(nn.Module):
         x = self.linear(x)  # Take the last time step's output
         return x
 
+
+
+def laplacian(model, inputs):
+    model.eval()
+    inputs.requires_grad_(True)
+
+    # First forward pass
+    outputs = model(inputs).squeeze()
+
+    first_derivatives = torch.autograd.grad(
+        outputs, inputs, grad_outputs=torch.ones_like(outputs),
+        create_graph=True, retain_graph=True, only_inputs=True)[0]
+
+    # We now compute the gradients of each element of first_derivatives w.r.t. inputs
+    second_derivatives = torch.autograd.grad(
+        first_derivatives, inputs, grad_outputs=torch.ones_like(first_derivatives),
+        create_graph=True, retain_graph=True, only_inputs=True)[0]
+
+    # Assuming a scalar output, the Laplacian is the sum of the second derivatives
+    laplacian = second_derivatives.sum(dim=tuple(range(1, second_derivatives.ndimension())))
+    return laplacian
 
 def derivative(model, inputs):
     # Ensure the model is in evaluation mode if it contains any dropout or batchnorm layers
@@ -145,8 +157,17 @@ output_size = 1  # Output is a single number
 # Initialize the model
 model = CustomLSTM(input_size, hidden_layer_sizes, output_size)
 
-# Loss function and optimizer
 criterion = nn.MSELoss()
+pde = ReverseChauchyPDE(
+    f_function=F_EXPR,
+    g_function=G_EXPR,
+    h_function=H_EXPR,
+    x_symbols=Xs_symbol,
+    time_symbol=t_symbol,
+    criterion=criterion
+)
+
+
 optimizer = torch.optim.Adam(model.parameters())
 
 # Convert numpy arrays to PyTorch tensors and reshape time_sample for concatenation
@@ -166,8 +187,8 @@ perm = torch.randperm(combined_data.size(0))
 combined_data = combined_data[perm]
 
 # Define batch size
-batch_size = 250_000
-# batch_size = domain_input.shape[0] + edge_input.shape[0]
+# batch_size = 256
+batch_size = domain_input.shape[0] + edge_input.shape[0]
 num_epochs = 50
 
 # Training loop
@@ -178,21 +199,27 @@ for epoch in range(num_epochs):
         outputs = model(inputs)
 
         # Calculate the derivatives for each feature in the input
+        laplacian = laplacian(model, inputs)
         gradient = derivative(model, inputs)
-        print(gradient.shape)
 
-        # Calculate loss for domain data
-        # domain_loss = criterion(outputs[:domain_input.shape[0]], domain_targets)
-        # edge_loss = criterion(outputs[domain_input.shape[0]:], g_values)
+        tr_loss = criterion(laplacian + gradient[:, -1], torch.zeros_like(laplacian))
+        f_loss = pde.loss('f', outputs, gradient)
+        g_loss = pde.loss('g', outputs, gradient)
+        h_loss = pde.loss('h', outputs, gradient)
 
         # Combine losses
-        loss = domain_loss + edge_loss
+        combined_loss = tr_loss + f_loss + g_loss + h_loss
 
-        # Backward pass and optimization
-        optimizer.zero_grad()
-        loss.backward()
+        # Backward pass
+        combined_loss.backward()
         optimizer.step()
 
-        total_loss += loss.item()
-
-    print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}')
+        # Update total losses
+        total_tr_loss += tr_loss.item()
+        total_f_loss += f_loss.item()
+        total_g_loss += g_loss.item()
+        total_h_loss += h_loss.item()
+    
+    # Print average losses after each epoch
+    print('Epoch [{}/{}], TR Loss: {:.4f}, F Loss: {:.4f}, G Loss: {:.4f}, H Loss: {:.4f}'
+          .format(epoch+1, num_epochs, total_tr_loss/(i+1), total_f_loss/(i+1), total_g_loss/(i+1), total_h_loss/(i+1)))

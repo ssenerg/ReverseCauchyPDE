@@ -5,6 +5,7 @@ from .shapes import BaseShape
 from numbers import Number
 import numpy as np
 import sympy as sp
+import torch
 
 
 class ReverseChauchyPDE:
@@ -42,22 +43,17 @@ class ReverseChauchyPDE:
             g_function: List[str],          # Γ × T -  g => (∂u(X)/∂x1, ..., ∂u(X)/∂xn)
             h_function: str,                #   Ω   -  h => u(X, 0)
             x_symbols: List[str],           # ['x1', 'x2', ...] except t,
-            domain_sample: np.ndarray,      # sample of domain
-            edge_sample: np.ndarray,        # sample of edge
-            time_sample: np.ndarray,           # sample of time
+            criterion: Type[torch.nn.Module] ,
             time_symbol: str = 't'          # time symbol
         ) -> "EquationSystem":
         
-        f_func, g_func, h_func, x_syms, t_sym, domain_sample, edge_sample, t_sample = \
-            self.__error_handling(
+        f_func, g_func, h_func, x_syms, t_sym, criterion = self.__error_handling(
                 f_function, 
                 g_function, 
                 h_function, 
                 x_symbols, 
                 time_symbol,
-                domain_sample,
-                edge_sample,
-                time_sample
+                criterion
             )
         
         self.x_dim = len(x_syms)
@@ -68,8 +64,7 @@ class ReverseChauchyPDE:
         self.g_func = [parse_expr(g) for g in g_func]
         self.h_func = parse_expr(h_func)
 
-        self.edge_sample, self.domain_sample = edge_sample, domain_sample
-        self.time_sample = t_sample
+        self.criterion = criterion
 
     @staticmethod
     def __error_handling(
@@ -78,15 +73,14 @@ class ReverseChauchyPDE:
             h_function: str,
             x_symbols: List[str],
             time_symbol: str,
-            domain_sample: np.ndarray,
-            edge_sample: np.ndarray,
-            time_sample: np.ndarray
+            criterion: Type[torch.nn.Module]
         ) -> Tuple[
             str, 
             List[str], 
             str, 
             List[str], 
-            str
+            str,
+            Type[torch.nn.Module]
         ]:
 
         """
@@ -99,19 +93,15 @@ class ReverseChauchyPDE:
             g_function (List[str]): g => ∂u(X)/∂n = [∂u(X)/∂x1, ∂u(X)/∂x2, ...]
             h_function (str): h => u(X, 0)
             x_symbols (List[str]): ['x1', 'x2', ...] (time_symbol is not included)
-            domain_sample (np.ndarray): sample of domain
-            edge_sample (np.ndarray): sample of edge
-            t_condition (IntervalCondition): IntervalCondition object
             time_symbol (str): Any time symbol different from x_symbols
+            criterion (Type[torch.nn.Module]): Loss function
         Returns:
             f_function (str): f => u(X, t)
             g_function (List[str]): g => ∂u(X)/∂n = [∂u(X)/∂x1, ∂u(X)/∂x2, ...]
             h_function (str): h => u(X, 0)
             x_symbols (List[str]): ['x1', 'x2', ...] (time_symbol is not included)
             time_symbol (str): Any time symbol different from x_symbols
-            domain_sample (np.ndarray): sample of domain
-            edge_sample (np.ndarray): sample of edge
-            t_condition (IntervalCondition): IntervalCondition object
+            criterion (Type[torch.nn.Module]): Loss function
         """
 
         # Validating functions
@@ -133,15 +123,6 @@ class ReverseChauchyPDE:
             raise TypeError('x_symbols must be a list of strings.')
         x_symbols = [x.strip() for x in x_symbols]\
         
-        if type(domain_sample) != np.ndarray:
-            raise TypeError('domain_sample must be a numpy.ndarray.')
-        if type(edge_sample) != np.ndarray:
-            raise TypeError('edge_sample must be a numpy.ndarray.')
-        if domain_sample.shape[1] != len(x_symbols):
-            raise ValueError('domain_sample must have the same shape as x_symbols.')
-        if edge_sample.shape[1] != len(x_symbols):
-            raise ValueError('edge_sample must have the same shape as x_symbols.')
-
         # Validating time_symbol
         if not isinstance(time_symbol, str):
             raise TypeError('time_symbol must be a string.')
@@ -149,20 +130,13 @@ class ReverseChauchyPDE:
         if time_symbol in x_symbols:
             raise ValueError('time_symbol must be different from x_symbols.')
         
-        if type(time_sample) != np.ndarray:
-            raise TypeError('time_sample must be a numpy.ndarray.')
-        if len(time_sample.shape) != 1:
-            raise ValueError('time_sample must be one dimensional.')
-            
         return (
             f_function, 
             g_function, 
             h_function, 
             x_symbols, 
             time_symbol,
-            domain_sample,
-            edge_sample,
-            time_sample
+            criterion
         )
 
     @staticmethod
@@ -188,7 +162,21 @@ class ReverseChauchyPDE:
         return symbol
 
 
-    def f_function(
-            self,
-        ):
+    def _f_loss(self, output: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
         pass
+
+    def _g_loss(self, output: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
+        pass
+
+    def _h_loss(self, output: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
+        pass
+
+    def loss(self, func: Literal['f', 'g', 'h'], output:torch.Tensor, gradient:torch.Tensor) -> torch.Tensor:
+        if func == 'f':
+            return self._f_loss(output, gradient)
+        elif func == 'g':
+            return self._g_loss(output, gradient)
+        elif func == 'h':
+            return self._h_loss(output, gradient)
+        else:  
+            raise ValueError('func must be one of f, g, h.')
