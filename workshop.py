@@ -18,6 +18,7 @@ import torch
 
 device = torch.device("mps") if torch.backends.mps.is_available() else \
     torch.device("cpu")
+device = torch.device("cpu")
 
 SEED = randint(1, 1000000)
 print('Seed:', SEED)
@@ -111,6 +112,8 @@ batch_size_edge = int(edge_input.shape[0] / batch_size_divider)
 batch_size_domain = int(domain_input.shape[0] / batch_size_divider)
 
 combined_data = torch.cat((domain_input, edge_input), dim=0)
+
+print('\nTraining Loop\n')
 for epoch in range(num_epochs):
 
     total_tr_loss = 0.0
