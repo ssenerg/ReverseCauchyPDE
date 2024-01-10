@@ -1,6 +1,5 @@
 from typing import List, Tuple, Type, Union, Literal
 from sympy.parsing.sympy_parser import parse_expr
-from .utilities import IntervalCondition
 from .shapes import BaseShape
 from numbers import Number
 import numpy as np
@@ -168,15 +167,20 @@ class ReverseChauchyPDE:
     def _g_loss(self, output: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
         pass
 
-    def _h_loss(self, output: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
+    def _h_loss(self, output: torch.Tensor) -> torch.Tensor:
         pass
 
-    def loss(self, func: Literal['f', 'g', 'h'], output:torch.Tensor, gradient:torch.Tensor) -> torch.Tensor:
+    def loss(
+            self, 
+            func: Literal['f', 'g', 'h'], 
+            output: torch.Tensor, 
+            gradient: torch.Tensor = None
+        ) -> torch.Tensor:
         if func == 'f':
             return self._f_loss(output, gradient)
         elif func == 'g':
             return self._g_loss(output, gradient)
         elif func == 'h':
-            return self._h_loss(output, gradient)
+            return self._h_loss(output)
         else:  
             raise ValueError('func must be one of f, g, h.')

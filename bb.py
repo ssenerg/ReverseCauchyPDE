@@ -1,12 +1,21 @@
-from ANNPDE.PDE.shapes import LineShape
-
-
-a = LineShape(
-    seed=1,
-    n=256,
-    start_point=0,
-    end_point=1,
-    cross_sample_generate=1,
-    even_sample=True
+from ANNPDE.PDE import ReverseChauchyPDE
+from ANNPDE.PDE.shapes import (
+    ElipseShape, 
+    CircleShape, 
+    LineShape
 )
-a.plot()
+from ANNPDE.ANN import (
+    LSTM, 
+    laplacian ,
+    derivative,
+    prepare_data
+)
+import plotly.graph_objs as go
+from random import randint
+from torch import nn
+import numpy as np
+import torch
+
+
+SEED = randint(1, 1000000)
+print('Seed:', SEED)

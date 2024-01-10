@@ -187,7 +187,7 @@ perm = torch.randperm(combined_data.size(0))
 combined_data = combined_data[perm]
 
 # Define batch size
-# batch_size = 256
+# batch_xsize = 256
 batch_size = domain_input.shape[0] + edge_input.shape[0]
 num_epochs = 50
 
