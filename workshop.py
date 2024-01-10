@@ -1,31 +1,64 @@
+from ANNPDE.PDE import ReverseChauchyPDE
 from ANNPDE.PDE.shapes import (
     ElipseShape, 
     CircleShape, 
     LineShape
 )
-from ANNPDE.PDE import ReverseChauchyPDE
+from ANNPDE.ANN import (
+    LSTM, 
+    laplacian,
+    derivative,
+    prepare_data
+)
 import plotly.graph_objs as go
 from random import randint
 from torch import nn
 import numpy as np
 import torch
 
-
+device = torch.device("mps") if torch.backends.mps.is_available() else \
+    torch.device("cpu")
 
 SEED = randint(1, 1000000)
 print('Seed:', SEED)
+n = 2  # Dimension of the surface
+input_size = n + 1  # Input is (x1, x2, t)
+hidden_layer_sizes = [10, 20, 50, 90, 150, 100, 50]  # Customize your hidden layer sizes
+output_size = 1  
+batch_size_divider = 512
+
+num_epochs = 100
+
+print(
+      'Surface dimension: ', n, 
+      '\nHidden layer sizes: ', hidden_layer_sizes, 
+      '\nBatch size divider: ', batch_size_divider,
+      '\nEpochs: ', num_epochs,
+      '\n\nInput size: ', input_size, 
+      '\nOutput size: ', output_size
+)
+
 
 F_EXPR = 'E ** x1 * sin(x2) * cos(t)'
 G_EXPR = ['E ** x1 * sin(x2)', 'E ** x1 * cos(x2)']
 H_EXPR = 'E ** x1 * sin(x2)'
 Xs_symbol, t_symbol = ['x1', 'x2'], 't'
 
-T_SAMPLE = 256
-E_SAMPLE = 128
+print()
+print('f(x1, x2, t) =', F_EXPR)
+print('g(x1, x2, t) =', G_EXPR)
+print('h(x1, x2, t) =', H_EXPR)
+T_SAMPLE = 512
+E_SAMPLE = 256
 D_SAMPLE = 2048
 CENTER = np.array([0, 0])
 RADIUS = 10
 
+print('Time sample:', T_SAMPLE)
+print('Edge sample:', E_SAMPLE)
+print('Domain sample:', D_SAMPLE)
+print('\nCircle Center:', CENTER)
+print('Circle Radius:', RADIUS)
 time = LineShape(
     seed=SEED,
     n=T_SAMPLE,
@@ -34,9 +67,10 @@ time = LineShape(
     cross_sample_generate=1,
     even_sample=True
 )
-
 time_sample = time.get()
 
+print('Time sample shape:', time_sample.shape)
+time.plot()
 shape = CircleShape(
     seed=SEED,
     edge_n=E_SAMPLE,
@@ -46,116 +80,13 @@ shape = CircleShape(
     cross_sample_generate=1,
     even_sample=True
 )
-
 edge_sample, domain_sample = shape.get()
 
-
-
-# ----------- 
-
-class CustomLSTM(nn.Module):
-    def __init__(self, input_size, hidden_layer_sizes, output_size=1):
-        super(CustomLSTM, self).__init__()
-        self.hidden_layers = nn.ModuleList()
-        for i in range(len(hidden_layer_sizes)):
-            if i == 0:
-                self.hidden_layers.append(
-                    nn.LSTM(input_size, hidden_layer_sizes[i], batch_first=True)
-                )
-            else:
-                self.hidden_layers.append(
-                    nn.LSTM(
-                        hidden_layer_sizes[i-1], 
-                        hidden_layer_sizes[i]
-                    )
-                )
-        
-        self.linear = nn.Linear(hidden_layer_sizes[-1], output_size)
-
-    def forward(self, x):
-        for lstm in self.hidden_layers:
-            x, _ = lstm(x)
-        x = self.linear(x)  # Take the last time step's output
-        return x
-
-
-
-def laplacian(model, inputs):
-    model.eval()
-    inputs.requires_grad_(True)
-
-    # First forward pass
-    outputs = model(inputs).squeeze()
-
-    first_derivatives = torch.autograd.grad(
-        outputs, inputs, grad_outputs=torch.ones_like(outputs),
-        create_graph=True, retain_graph=True, only_inputs=True)[0]
-
-    # We now compute the gradients of each element of first_derivatives w.r.t. inputs
-    second_derivatives = torch.autograd.grad(
-        first_derivatives, inputs, grad_outputs=torch.ones_like(first_derivatives),
-        create_graph=True, retain_graph=True, only_inputs=True)[0]
-
-    # Assuming a scalar output, the Laplacian is the sum of the second derivatives
-    laplacian = second_derivatives.sum(dim=tuple(range(1, second_derivatives.ndimension())))
-    return laplacian
-
-def derivative(model, inputs):
-    # Ensure the model is in evaluation mode if it contains any dropout or batchnorm layers
-    model.eval()
-
-    # Make sure inputs have requires_grad set to True so we can get gradients
-    inputs.requires_grad_(True)
-
-    # Forward pass to get the outputs
-    outputs = model(inputs)
-
-    # We assume outputs are of shape [batch_size, 1] for a single neuron
-    # If your output has a different shape, adjust accordingly
-    outputs = outputs.squeeze()
-
-    # Initialize a tensor to hold gradients
-    gradients = torch.zeros_like(inputs)
-
-    # Calculate gradients for each sample in the batch
-    for i in range(outputs.size(0)):
-        # Zero out previous gradients
-        model.zero_grad()
-
-        # Select the output of the current sample and backpropagate
-        output_i = outputs[i]
-        output_i.backward(retain_graph=True)  # retain_graph=True allows multiple backward passes
-
-        # Extract the gradients for the current input
-        gradients[i] = inputs.grad[i].detach()  # Detach to prevent further graph operations
-
-        # Zero the gradients on the inputs after extracting them
-        inputs.grad.data.zero_()
-
-    # Return the gradients
-    return gradients
-
-
-# Function to prepare the data for LSTM input
-def prepare_data(time_sample, surface_sample):
-    time_sample_ = time_sample.reshape(-1, 1)
-    surface_sample_ = np.repeat(
-        surface_sample[np.newaxis, :, :], repeats=time_sample.shape[0], axis=0
-    )
-    time_sample_ = np.repeat(
-        time_sample_[:, np.newaxis, :], repeats=surface_sample.shape[0], axis=1
-    )
-    cartesian_product = np.concatenate((surface_sample_, time_sample_), axis=2)
-    return cartesian_product.reshape(-1, 3)
-
-# Example usage
-n = 2  # Dimension of the surface
-input_size = n + 1  # Input is (x1, x2, t)
-hidden_layer_sizes = [10, 20, 50, 90, 150, 100, 50]  # Customize your hidden layer sizes
-output_size = 1  # Output is a single number
-
-# Initialize the model
-model = CustomLSTM(input_size, hidden_layer_sizes, output_size)
+print('Edge sample shape:', edge_sample.shape)
+print('Domain sample shape:', domain_sample.shape)
+shape.plot()
+model = LSTM(input_size, hidden_layer_sizes, output_size)
+model.to(device)
 
 criterion = nn.MSELoss()
 pde = ReverseChauchyPDE(
@@ -166,60 +97,80 @@ pde = ReverseChauchyPDE(
     time_symbol=t_symbol,
     criterion=criterion
 )
-
-
 optimizer = torch.optim.Adam(model.parameters())
+domain_input = torch.from_numpy(
+    prepare_data(time_sample, domain_sample)
+).float().to(device)
+edge_input = torch.from_numpy(
+    prepare_data(time_sample, edge_sample)
+).float().to(device)
 
-# Convert numpy arrays to PyTorch tensors and reshape time_sample for concatenation
-domain_input = torch.from_numpy(prepare_data(time_sample, domain_sample)).float()
-edge_input = torch.from_numpy(prepare_data(time_sample, edge_sample)).float()
+domain_input = domain_input[torch.randperm(domain_input.size()[0])]
+edge_input = edge_input[torch.randperm(edge_input.size()[0])]
+batch_size_edge = int(edge_input.shape[0] / batch_size_divider)
+batch_size_domain = int(domain_input.shape[0] / batch_size_divider)
 
-# Assume some target values for demonstration (you should replace these with your actual targets)
-domain_targets = torch.randn(domain_input.size(0), 1)
-edge_targets = torch.randn(edge_input.size(0), 1)
-
-# Concatenate domain and edge data and targets
 combined_data = torch.cat((domain_input, edge_input), dim=0)
-combined_targets = torch.cat((domain_targets, edge_targets), dim=0)
-
-# Shuffle the data
-perm = torch.randperm(combined_data.size(0))
-combined_data = combined_data[perm]
-
-# Define batch size
-# batch_xsize = 256
-batch_size = domain_input.shape[0] + edge_input.shape[0]
-num_epochs = 50
-
-# Training loop
 for epoch in range(num_epochs):
-    for i in range(0, combined_data.size(0), batch_size):
-        # Get the batch
-        inputs = combined_data[i:i+batch_size]
+
+    total_tr_loss = 0.0
+    total_f_loss = 0.0
+    total_g_loss = 0.0
+    total_h_loss = 0.0
+    
+    for i in range(batch_size_divider):
+
+        batch_domain = domain_input[i*batch_size_domain:(i+1)*batch_size_domain, :].to(device)
+        batch_edge = edge_input[i*batch_size_edge:(i+1)*batch_size_edge, :].to(device)
+
+        inputs = torch.cat((batch_domain, batch_edge), dim=0).to(device)
+        print('Input size: ', inputs.shape)
+
         outputs = model(inputs)
+        print('Output size: ', outputs.shape)
 
-        # Calculate the derivatives for each feature in the input
-        laplacian = laplacian(model, inputs)
-        gradient = derivative(model, inputs)
+        laplacian_ = laplacian(model, batch_domain).to(device)
+        gradient = derivative(model, inputs).to(device)
 
-        tr_loss = criterion(laplacian + gradient[:, -1], torch.zeros_like(laplacian))
-        f_loss = pde.loss('f', outputs, gradient)
-        g_loss = pde.loss('g', outputs, gradient)
-        h_loss = pde.loss('h', outputs, gradient)
+        tr_loss = criterion(laplacian_ + gradient[:, -1], torch.zeros(laplacian_))
+        print('Laplacian Loss: ', tr_loss)
 
-        # Combine losses
-        combined_loss = tr_loss + f_loss + g_loss + h_loss
+        f_loss = pde.loss('f', outputs[batch_domain.size(0): ], gradient)
+        print('F Loss: ', f_loss)
 
-        # Backward pass
+        g_loss = pde.loss('g', outputs[batch_domain.size(0): ], gradient) # TODO: DRICHLET O INA
+        print('G Loss: ', g_loss)
+
+        on_zero_input = torch.cat(
+            (batch_domain[:, :-1], torch.zeros((batch_domain.shape[0], 1))),
+            dim=1
+        )
+        on_zero_output = model(on_zero_input)
+        h_loss = pde.loss('h', on_zero_output, on_zero_input)
+        print('H Loss: ', h_loss)
+        
+
+        combined_loss = tr_loss / laplacian_.shape[0] + \
+            f_loss / batch_edge.shape[0] + \
+                g_loss / batch_edge.shape[0] + \
+                    h_loss / batch_domain.shape[0]
+
         combined_loss.backward()
         optimizer.step()
 
-        # Update total losses
         total_tr_loss += tr_loss.item()
         total_f_loss += f_loss.item()
         total_g_loss += g_loss.item()
         total_h_loss += h_loss.item()
     
-    # Print average losses after each epoch
-    print('Epoch [{}/{}], TR Loss: {:.4f}, F Loss: {:.4f}, G Loss: {:.4f}, H Loss: {:.4f}'
-          .format(epoch+1, num_epochs, total_tr_loss/(i+1), total_f_loss/(i+1), total_g_loss/(i+1), total_h_loss/(i+1)))
+    print(
+        'Epoch [{}/{}], TR Loss: {:.4f}, F Loss: {:.4f}, ' \
+        'G Loss: {:.4f}, H Loss: {:.4f}'.format(
+            epoch+1, 
+            num_epochs, 
+            total_tr_loss/(i+1), 
+            total_f_loss/(i+1), 
+            total_g_loss/(i+1), 
+            total_h_loss/(i+1)
+        )
+    )
