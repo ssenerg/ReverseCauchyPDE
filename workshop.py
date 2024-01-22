@@ -16,9 +16,12 @@ from torch import nn
 import numpy as np
 import torch
 
-device = torch.device("mps") if torch.backends.mps.is_available() else \
+
+gpu = torch.device("mps") if torch.backends.mps.is_available() else \
     torch.device("cpu")
-device = torch.device("cpu")
+# gpu = torch.device("cpu")
+cpu = torch.device("cpu")
+
 
 SEED = randint(1, 1000000)
 print('Seed:', SEED)
@@ -49,11 +52,11 @@ print()
 print('f(x1, x2, t) =', F_EXPR)
 print('g(x1, x2, t) =', G_EXPR)
 print('h(x1, x2, t) =', H_EXPR)
-T_SAMPLE = 512
+T_SAMPLE = 128
 E_SAMPLE = 256
-D_SAMPLE = 2048
+D_SAMPLE = 1024
 CENTER = np.array([0, 0])
-RADIUS = 10
+RADIUS = 1
 
 print('Time sample:', T_SAMPLE)
 print('Edge sample:', E_SAMPLE)
@@ -71,7 +74,6 @@ time = LineShape(
 time_sample = time.get()
 
 print('Time sample shape:', time_sample.shape)
-time.plot()
 shape = CircleShape(
     seed=SEED,
     edge_n=E_SAMPLE,
@@ -85,9 +87,8 @@ edge_sample, domain_sample = shape.get()
 
 print('Edge sample shape:', edge_sample.shape)
 print('Domain sample shape:', domain_sample.shape)
-shape.plot()
 model = LSTM(input_size, hidden_layer_sizes, output_size)
-model.to(device)
+model.to(gpu)
 
 criterion = nn.MSELoss()
 pde = ReverseChauchyPDE(
@@ -101,10 +102,10 @@ pde = ReverseChauchyPDE(
 optimizer = torch.optim.Adam(model.parameters())
 domain_input = torch.from_numpy(
     prepare_data(time_sample, domain_sample)
-).float().to(device)
+).float().to(gpu)
 edge_input = torch.from_numpy(
     prepare_data(time_sample, edge_sample)
-).float().to(device)
+).float().to(gpu)
 
 domain_input = domain_input[torch.randperm(domain_input.size()[0])]
 edge_input = edge_input[torch.randperm(edge_input.size()[0])]
@@ -123,17 +124,20 @@ for epoch in range(num_epochs):
     
     for i in range(batch_size_divider):
 
-        batch_domain = domain_input[i*batch_size_domain:(i+1)*batch_size_domain, :].to(device)
-        batch_edge = edge_input[i*batch_size_edge:(i+1)*batch_size_edge, :].to(device)
+        batch_domain = domain_input[i*batch_size_domain:(i+1)*batch_size_domain, :].to(gpu)
+        batch_edge = edge_input[i*batch_size_edge:(i+1)*batch_size_edge, :].to(gpu)
 
-        inputs = torch.cat((batch_domain, batch_edge), dim=0).to(device)
+        inputs = torch.cat((batch_domain, batch_edge), dim=0)
         print('Input size: ', inputs.shape)
 
         outputs = model(inputs)
         print('Output size: ', outputs.shape)
 
-        laplacian_ = laplacian(model, batch_domain).to(device)
-        gradient = derivative(model, inputs).to(device)
+        laplacian_ = laplacian(model, batch_domain)
+        gradient = derivative(model, inputs)
+
+        print(laplacian_.shape)
+        print(gradient.shape)
 
         tr_loss = criterion(laplacian_ + gradient[:, -1], torch.zeros(laplacian_))
         print('Laplacian Loss: ', tr_loss)
