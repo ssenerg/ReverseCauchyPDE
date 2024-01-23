@@ -42,7 +42,7 @@ class ReverseChauchyPDE:
             g_function: List[str],          # Γ × T -  g => (∂u(X)/∂x1, ..., ∂u(X)/∂xn)
             h_function: str,                #   Ω   -  h => u(X, 0)
             x_symbols: List[str],           # ['x1', 'x2', ...] except t,
-            criterion: Type[torch.nn.Module] ,
+            criterion: Type[torch.nn.Module],
             time_symbol: str = 't'          # time symbol
         ) -> "EquationSystem":
         
@@ -62,6 +62,22 @@ class ReverseChauchyPDE:
         self.f_func = parse_expr(f_func)
         self.g_func = [parse_expr(g) for g in g_func]
         self.h_func = parse_expr(h_func)
+
+        self.f_lambda = sp.lambdify(
+            self.x_vars + [self.t_var], 
+            self.f_func, 
+            modules='numpy'
+        )
+        self.g_lambda = [sp.lambdify(
+            self.x_vars + [self.t_var], 
+            g, 
+            modules='numpy'
+        ) for g in self.g_func]
+        self.h_lambda = sp.lambdify(
+            self.x_vars + [self.t_var], 
+            self.h_func, 
+            modules='numpy'
+        )
 
         self.criterion = criterion
 
@@ -160,27 +176,109 @@ class ReverseChauchyPDE:
             )
         return symbol
 
+    def _calculate(self, function: str, layer: torch.Tensor) -> torch.Tensor:
+        
+        """
+        This function is used to calculate the value of a function
+        
+        --------------------------------------------------------------------------------
+        
+        Parameters:
+            function (str): function is a string
+            layer (torch.Tensor): layer is a tensor of shape (batch_size, x_dim + 1)
+        """
 
-    def _f_loss(self, output: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
-        pass
+        if function == 'f':
+            return self._calculate_f(layer)
+        elif function == 'g':
+            return self._calculate_g(layer)
+        elif function == 'h':
+            return self._calculate_h(layer)
+        else:
+            raise ValueError('function must be one of f, g, h.')
 
-    def _g_loss(self, output: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
-        pass
+    def _calculate_f(self, layer: torch.Tensor) -> torch.Tensor:
+        
+        """
+        This function is used to calculate the value of f_function
+        
+        --------------------------------------------------------------------------------
+        
+        Parameters:
+            layer (torch.Tensor): layer is a tensor of shape (batch_size, x_dim + 1)
+        """
 
-    def _h_loss(self, output: torch.Tensor) -> torch.Tensor:
-        pass
+        layer = layer.detach().numpy()
+        return torch.from_numpy(self.f_lambda(
+            *[layer[:, i] for i in range(self.x_dim + 1)]
+        ).reshape(-1, 1)).float()
+
+    def _calculate_g(self, layer: torch.Tensor) -> torch.Tensor:
+            
+        """
+        This function is used to calculate the value of g_function
+        
+        --------------------------------------------------------------------------------
+        
+        Parameters:
+            layer (torch.Tensor): layer is a tensor of shape (batch_size, x_dim + 1)
+        """
+
+        layer = layer.detach().numpy()
+        return torch.from_numpy(np.concatenate([
+            self.g_lambda[i](
+                *[layer[:, i] for i in range(self.x_dim + 1)]
+            ).reshape(-1, 1) 
+            for i in range(len(self.g_func))
+        ], axis=1)).float()
+
+
+    
+    def _calculate_h(self, layer: torch.Tensor) -> torch.Tensor:
+                
+        """
+        This function is used to calculate the value of h_function
+        
+        --------------------------------------------------------------------------------
+        
+        Parameters:
+            layer (torch.Tensor): layer is a tensor of shape (batch_size, x_dim + 1)
+        """
+
+        layer = layer.detach().numpy()
+        return torch.from_numpy(self.h_lambda(
+            *[layer[:, i] for i in range(self.x_dim + 1)]
+        ).reshape(-1, 1)).float()
+
+    def _f_loss(
+            self, 
+            output: torch.Tensor, 
+            inputs: torch.Tensor
+        ) -> torch.Tensor:
+
+        return self.criterion(output, self._calculate_f(inputs))
+
+    def _g_loss(self, inputs: torch.Tensor, gradient: torch.Tensor) -> torch.Tensor:
+        
+        return self.criterion(gradient, self._calculate_g(inputs))
+
+
+    def _h_loss(self, output: torch.Tensor, inputs: torch.Tensor) -> torch.Tensor:
+
+        return self.criterion(output, self._calculate_h(inputs))
+        
 
     def loss(
             self, 
             func: Literal['f', 'g', 'h'], 
             output: torch.Tensor, 
-            gradient: torch.Tensor = None
+            gradient: torch.Tensor
         ) -> torch.Tensor:
         if func == 'f':
             return self._f_loss(output, gradient)
         elif func == 'g':
             return self._g_loss(output, gradient)
         elif func == 'h':
-            return self._h_loss(output)
+            return self._h_loss(output, gradient)
         else:  
             raise ValueError('func must be one of f, g, h.')

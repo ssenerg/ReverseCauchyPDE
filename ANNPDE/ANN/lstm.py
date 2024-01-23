@@ -3,7 +3,7 @@ import torch
 
 
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_layer_sizes, output_size=1):
+    def __init__(self, input_size, hidden_layer_sizes):
         super(LSTM, self).__init__()
         self.hidden_layers = nn.ModuleList()
         for i in range(len(hidden_layer_sizes)):
@@ -19,7 +19,7 @@ class LSTM(nn.Module):
                     )
                 )
         
-        self.linear = nn.Linear(hidden_layer_sizes[-1], output_size)
+        self.linear = nn.Linear(hidden_layer_sizes[-1], 1)
 
     def forward(self, x):
         for lstm in self.hidden_layers:
