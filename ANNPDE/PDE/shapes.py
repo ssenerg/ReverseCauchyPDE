@@ -350,8 +350,6 @@ class ElipseShape(BaseShape):
     def mesh(
             self, 
             dim_divide: int,
-            model,
-
         ) -> Tuple[np.ndarray, np.ndarray]:
 
         super().mesh()
@@ -362,14 +360,14 @@ class ElipseShape(BaseShape):
         y = np.linspace(
             self.center[1] - self.v_radius, self.center[1] + self.v_radius, dim_divide
         )
-
-
-
-
         grid_x, grid_y = np.meshgrid(x, y)
-
-
-
+        ellipse_mask = np.sqrt(
+            ((grid_x - self.center[0]) / self.h_radius) ** 2
+            + ((grid_y - self.center[1]) / self.v_radius) ** 2
+        ) <= 1
+        grid_z = np.where(ellipse_mask, 1, np.nan)
+        
+        return np.float32(grid_x), np.float32(grid_y), np.float32(grid_z)        
 
     def _dim(self) -> int:
 
@@ -584,8 +582,6 @@ class LineShape(BaseShape):
     def mesh(
             self, 
             dim_divide: int,
-            model,
-            
         ) -> Tuple[np.ndarray, np.ndarray]:
 
         super().mesh()
