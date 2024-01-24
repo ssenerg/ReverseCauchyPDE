@@ -1,4 +1,5 @@
 from numpy import random as numpy_random
+from scipy.interpolate import griddata
 from .utilities import int_validator
 from abc import ABC, abstractmethod
 import plotly.graph_objects as go
@@ -137,6 +138,11 @@ class BaseShape(ABC):
     @abstractmethod
     def _even_edge_sample(self) -> None:
         pass
+    
+    @abstractmethod
+    def mesh(self) -> Tuple[np.ndarray, np.ndarray]:
+        if self.dim != 2:
+            raise ValueError('mesh is only supported for 2D shapes.')
 
     def get(self) -> Tuple[np.ndarray, np.ndarray]:
 
@@ -155,8 +161,6 @@ class BaseShape(ABC):
 
         return self.edge_sample, self.domain_sample
     
-
-
     def plot(self, size: int = 1) -> None:
         
         if self.edge_sample is None:
@@ -342,6 +346,30 @@ class ElipseShape(BaseShape):
         if even_sample:
             self.sobol_engine = Sobol(d=2, scramble=True)
         self.dim = self._dim()
+
+    def mesh(
+            self, 
+            dim_divide: int,
+            model,
+
+        ) -> Tuple[np.ndarray, np.ndarray]:
+
+        super().mesh()
+        
+        x = np.linspace(
+            self.center[0] - self.h_radius, self.center[0] + self.h_radius, dim_divide
+        )
+        y = np.linspace(
+            self.center[1] - self.v_radius, self.center[1] + self.v_radius, dim_divide
+        )
+
+
+
+
+        grid_x, grid_y = np.meshgrid(x, y)
+
+
+
 
     def _dim(self) -> int:
 
@@ -553,7 +581,16 @@ class LineShape(BaseShape):
 
         return self.domain_sample
     
+    def mesh(
+            self, 
+            dim_divide: int,
+            model,
+            
+        ) -> Tuple[np.ndarray, np.ndarray]:
 
+        super().mesh()
+
+        
 __all__ = [
     'ElipseShape',
     'CircleShape',

@@ -232,8 +232,6 @@ class ReverseChauchyPDE:
             for i in range(len(self.g_func))
         ], axis=1)).float()
 
-
-    
     def _calculate_h(self, layer: torch.Tensor) -> torch.Tensor:
                 
         """
@@ -262,12 +260,10 @@ class ReverseChauchyPDE:
         
         return self.criterion(gradient, self._calculate_g(inputs))
 
-
     def _h_loss(self, output: torch.Tensor, inputs: torch.Tensor) -> torch.Tensor:
 
         return self.criterion(output, self._calculate_h(inputs))
-        
-
+   
     def loss(
             self, 
             func: Literal['f', 'g', 'h'], 
@@ -282,3 +278,40 @@ class ReverseChauchyPDE:
             return self._h_loss(output, gradient)
         else:  
             raise ValueError('func must be one of f, g, h.')
+
+    def loss_function(
+            self,
+            inputs: torch.Tensor,
+            domain_count: int,
+            outputs: torch.Tensor,
+            gradients: torch.Tensor,
+            laplacians: torch.Tensor,
+            model: torch.nn.Module,
+        ) -> torch.Tensor:
+
+        # Calculate the loss on the domain using laplacian function
+        tr_loss = self.criterion(
+            laplacians + gradients[:, -1].unsqueeze(1), torch.zeros(laplacians.shape)
+        )
+        # Calculate the loss on the Edge
+        f_loss = self.loss(
+            'f', 
+            outputs[domain_count: ], 
+            inputs[domain_count: ]
+        )
+        # Calculate the loss on the boundary using the normal vector
+        g_loss = self.loss(
+            'g', 
+            inputs[domain_count:], 
+            gradients[domain_count:, : -1]
+        )
+        # Calculate the loss on the boundary at t = 0
+        on_zero_input = torch.cat(
+            (inputs[:, :-1], torch.zeros((inputs.shape[0], 1))),
+            dim=1
+        )
+        on_zero_output = model(on_zero_input)
+        h_loss = self.loss('h', on_zero_output, on_zero_input)
+
+        # Calculate the combined loss
+        return tr_loss, f_loss, g_loss, h_loss
