@@ -365,9 +365,8 @@ class ElipseShape(BaseShape):
             ((grid_x - self.center[0]) / self.h_radius) ** 2
             + ((grid_y - self.center[1]) / self.v_radius) ** 2
         ) <= 1
-        grid_z = np.where(ellipse_mask, 1, np.nan)
         
-        return np.float32(grid_x), np.float32(grid_y), np.float32(grid_z)        
+        return x, y, np.float32(grid_x), np.float32(grid_y), ellipse_mask   
 
     def _dim(self) -> int:
 
